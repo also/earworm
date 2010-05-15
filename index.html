@@ -1,0 +1,288 @@
+<html>
+
+<head>
+<title>BLONDE</title>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+
+<script type="text/javascript" src="sylvester.js"></script>
+<script type="text/javascript" src="3d_data.js"></script>
+<script type="text/javascript" src="glUtils.js"></script>
+<script type="text/javascript" src="segment_offsets.js"></script>
+
+<script id="shader-fs" type="x-shader/x-fragment">
+    void main(void) {
+        gl_FragColor = vec4(0, 0.69, 0.972, 1.0);
+    }
+</script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+  attribute vec3 aVertexPosition;
+
+  uniform mat4 uMVMatrix;
+  uniform mat4 uPMatrix;
+
+  void main(void) {
+    gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+  }
+</script>
+
+
+<script type="text/javascript">
+var coords = data;
+
+  var gl;
+  function initGL(canvas) {
+    try {
+      gl = canvas.getContext("experimental-webgl");
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    } catch(e) {
+    }
+    if (!gl) {
+      alert("Could not initialise WebGL, sorry :-(");
+    }
+  }
+
+
+  function getShader(gl, id) {
+    var shaderScript = document.getElementById(id);
+    if (!shaderScript) {
+      return null;
+    }
+
+    var str = "";
+    var k = shaderScript.firstChild;
+    while (k) {
+      if (k.nodeType == 3) {
+        str += k.textContent;
+      }
+      k = k.nextSibling;
+    }
+
+    var shader;
+    if (shaderScript.type == "x-shader/x-fragment") {
+      shader = gl.createShader(gl.FRAGMENT_SHADER);
+    } else if (shaderScript.type == "x-shader/x-vertex") {
+      shader = gl.createShader(gl.VERTEX_SHADER);
+    } else {
+      return null;
+    }
+
+    gl.shaderSource(shader, str);
+    gl.compileShader(shader);
+
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      alert(gl.getShaderInfoLog(shader));
+      return null;
+    }
+
+    return shader;
+  }
+
+
+  var shaderProgram;
+  function initShaders() {
+    var fragmentShader = getShader(gl, "shader-fs");
+    var vertexShader = getShader(gl, "shader-vs");
+
+    shaderProgram = gl.createProgram();
+    gl.attachShader(shaderProgram, vertexShader);
+    gl.attachShader(shaderProgram, fragmentShader);
+    gl.linkProgram(shaderProgram);
+
+    if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+      alert("Could not initialise shaders");
+    }
+
+    gl.useProgram(shaderProgram);
+
+    shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+    gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+
+    shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
+    shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+  }
+
+
+  var mvMatrix;
+
+  function loadIdentity() {
+    mvMatrix = Matrix.I(4);
+  }
+
+
+  function multMatrix(m) {
+    mvMatrix = mvMatrix.x(m);
+  }
+
+
+  function mvTranslate(v) {
+    var m = Matrix.Translation($V([v[0], v[1], v[2]])).ensure4x4();
+    multMatrix(m);
+  }
+
+  function mvRotate(ang, v) {
+    var arad = ang * Math.PI / 180.0;
+    var m = Matrix.Rotation(arad, $V([v[0], v[1], v[2]])).ensure4x4();
+    multMatrix(m);
+  }
+
+  var mvMatrix;
+  var mvMatrixStack = [];
+
+  function mvPushMatrix(m) {
+    if (m) {
+      mvMatrixStack.push(m.dup());
+      mvMatrix = m.dup();
+    } else {
+      mvMatrixStack.push(mvMatrix.dup());
+    }
+  }
+
+  function mvPopMatrix() {
+    if (mvMatrixStack.length == 0) {
+      throw "Invalid popMatrix!";
+    }
+    mvMatrix = mvMatrixStack.pop();
+    return mvMatrix;
+  }
+
+
+  var pMatrix;
+  function perspective(fovy, aspect, znear, zfar) {
+    pMatrix = makePerspective(fovy, aspect, znear, zfar);
+  }
+
+
+  function setMatrixUniforms() {
+    gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, new WebGLFloatArray(pMatrix.flatten()));
+    gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, new WebGLFloatArray(mvMatrix.flatten()));
+  }
+
+
+  var squareVertexPositionBuffer;
+  function initBuffers() {
+
+    squareVertexPositionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, squareVertexPositionBuffer);
+    var vertices = [];
+    for (var i = 0; i < coords.length; i++) {
+        var c = coords[i];
+        vertices.push(c[0] / 100);
+        vertices.push(c[1] / 100);
+        vertices.push(c[2] / 100);
+    }
+    
+    gl.bufferData(gl.ARRAY_BUFFER, new WebGLFloatArray(vertices), gl.STATIC_DRAW);
+    squareVertexPositionBuffer.itemSize = 3;
+    squareVertexPositionBuffer.numItems = coords.length;
+  }
+
+var scale = 14;
+  var i = 0;
+  var r = 0;
+  function drawScene() {
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    perspective(450, 1.0, 0.1, 100.0);
+    loadIdentity();
+
+    mvTranslate([0, -3, -scale]);
+
+    mvRotate(parseInt(x.value), [1, 0, 0]);
+    mvRotate(parseInt(y.value), [0, 1, 0]);
+    mvRotate(parseInt(z.value), [0, 0, 1]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, squareVertexPositionBuffer);
+    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, squareVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+    setMatrixUniforms();
+    gl.drawArrays(gl.LINE_STRIP, 0, i);
+  }
+
+  function webGLStart() {
+    var canvas = document.getElementById("canvas");
+    canvas.addEventListener('mousewheel', function(e) {
+        //if (Math.abs(e.wheelDeltaY) > 10) {
+            scale -= e.wheelDeltaY / 10000;
+        //}
+        //else {
+        //    sound.currentTime -= e.wheelDeltaX / 3000;
+        //}
+        return e.preventDefault();
+    }, false);
+    initGL(canvas);
+    initShaders();
+    initBuffers();
+
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+
+    gl.clearDepth(1.0);
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+
+    setInterval(tick, 15);
+  }
+
+
+  var lastTime = 0;
+  var pos = 0;
+  function animate() {
+    var timeNow = new Date().getTime();
+    if (lastTime != 0) {
+      var elapsed = timeNow - lastTime;
+      r += (90 * elapsed) / 3000.0;
+      if (autoX.value) {
+          x.value = r % 360 - 180;
+      }
+      if (autoY.value) {
+          y.value = r % 360 - 180;
+      }
+      if (autoZ.value) {
+          z.value = r % 360 - 180;
+      }
+      if (sound.currentTime < segments[i]) {
+          i = 0;
+      }
+      while (sound.currentTime > segments[i] && i < segments.length - 1) {
+          i++;
+      }
+    }
+    lastTime = timeNow;
+  }
+
+
+  function tick() {
+    drawScene();
+    animate();
+  }
+
+
+</script>
+<style type="text/css">
+canvas {
+    display: block;
+}
+
+body {
+    font-family: helvetica;
+    background-color: #cccccc;
+    color: #666666;
+}
+
+label {
+    font-weight :bold;
+    font-size: 15px;
+}
+</style>
+
+</head>
+<body onload="webGLStart();">
+<!-- fuck yeah center--><center>
+<canvas id="canvas" style="border: none;" width="800" height="600"></canvas>
+<audio src="http://static.ryanberdeen.com/projects/forever/graph/lebanese.mp3" controls="yay!" id="sound" style="width: 800px;"></audio>
+<p><label>X <input type="range" id="x" min="-180" max="180"></label> <input type="checkbox" id="autoX"></p>
+<p><label>Y <input type="range" id="y" min="-180" max="180"></label> <input type="checkbox" id="autoY" checked="yup"></p>
+<p><label>Z <input type="range" id="z" min="-180" max="180"></label> <input type="checkbox" id="autoZ"></p>
+</center>
+</body>
+
+</html>
